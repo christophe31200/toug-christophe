@@ -1658,7 +1658,7 @@ select:
               # Si l'option choisie n'est PAS "Aucun", on relance le timer
               - if:
                   condition:
-                    lambda: 'return strcmp(id(test_mode).current_option(), "Aucun") != 0;'
+                    lambda: 'return id(test_mode).current_option(), "Aucun";'
                   then:
                     - script.execute: auto_stop_test
                     - if:
