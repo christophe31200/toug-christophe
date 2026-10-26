@@ -60,34 +60,6 @@ api:
 
 
 script:
-  # Valeurs par défaut des dates vacances : début = maintenant, fin = 18h
-  # (aujourd'hui, ou demain si 18h est déjà passé)
-  - id: init_dates_vacances
-    then:
-      - lambda: |-
-          ESPTime now = id(homeassistant_time).now();
-          if (!now.is_valid()) {
-            ESP_LOGW("Vacances", "Heure HA non synchronisée -> pas de valeurs par défaut");
-            return;
-          }
-          time_t t_fin = now.timestamp;
-          if (now.hour >= 18)
-            t_fin += 86400;
-          struct tm tm_fin = *localtime(&t_fin);
-          tm_fin.tm_hour = 18;
-          tm_fin.tm_min = 0;
-          tm_fin.tm_sec = 0;
-          char buf[20];
-
-          auto call1 = id(vacances_debut).make_call();
-          call1.set_datetime(now.strftime("%Y-%m-%d %H:%M:%S"));
-          call1.perform();
-
-          strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tm_fin);
-          auto call2 = id(vacances_fin).make_call();
-          call2.set_datetime(std::string(buf));
-          call2.perform();
-
   - id: update_mode_air_telecommande
     then:
       - lambda: |-       
@@ -186,12 +158,6 @@ globals:
 time:
   - platform: homeassistant
     id: homeassistant_time
-    on_time_sync:
-      - if:
-          condition:
-            lambda: 'return id(vacances_debut).state_as_esptime().year < 2000;'
-          then:
-            - script.execute: init_dates_vacances
 
 datetime:
   - platform: template
@@ -1825,23 +1791,33 @@ switch:
           time_t t_now = (time_t) now_epoch;
 
           // ---- Conversion des datetime en time_t (epoch) ----
-          // Début
-            ESPTime dt = id(vacances_debut).state_as_esptime();
-            struct tm tmv = dt.to_c_tm();
-            time_t t_deb_user = mktime(&tmv);
+          // Fin (obligatoire). Sans heure choisie (00:00) -> 18h00 par défaut
+          if (!id(vacances_fin).has_state()) {
+            ESP_LOGE("Vacances", "Fin vacances non renseignée -> refus");
+            return;
+          }
+          ESPTime dt = id(vacances_fin).state_as_esptime();
+          struct tm tmv = dt.to_c_tm();
+          if (tmv.tm_hour == 0 && tmv.tm_min == 0 && tmv.tm_sec == 0) {
+            ESP_LOGI("Vacances", "Heure de fin non renseignée -> 18h00");
+            tmv.tm_hour = 18;
+          }
+          tmv.tm_isdst = -1;
+          time_t t_fin_user = mktime(&tmv);
 
-
-          // Fin
-            dt = id(vacances_fin).state_as_esptime();
+          // Début (optionnel). Vide ou passé -> maintenant
+          time_t t_deb_user = t_now;
+          if (id(vacances_debut).has_state()) {
+            dt = id(vacances_debut).state_as_esptime();
             tmv = dt.to_c_tm();
-            time_t t_fin_user = mktime(&tmv);
-
+            tmv.tm_isdst = -1;
+            t_deb_user = mktime(&tmv);
+          }
 
           // ---- Validations ----
           bool erreur = false;
           if (t_deb_user <= t_now) {
-            // Début dans le passé (ex: aujourd'hui) -> démarrage immédiat
-            ESP_LOGW("Vacances", "Début vacances <= maintenant -> début immédiat");
+            ESP_LOGI("Vacances", "Début vacances vide ou passé -> début immédiat");
             t_deb_user = t_now;
           }
           if (t_fin_user <= t_now) {
@@ -1852,10 +1828,8 @@ switch:
             ESP_LOGE("Vacances", "Fin <= Début -> refus");
             erreur = true;
           }
-          if (erreur){
-            id(init_dates_vacances).execute();
+          if (erreur)
             return;
-            }
           // ---- Conversion en registres PAC ----
           auto make_regs = [&](time_t ts) {
             struct tm *ti = localtime(&ts);
@@ -1885,7 +1859,6 @@ switch:
 
     turn_off_action:
       - button.press: desactiver_vacances
-      - script.execute: init_dates_vacances
 
 # Example configuration entry
 light:
