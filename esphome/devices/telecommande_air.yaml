@@ -1692,7 +1692,7 @@ select:
               # Si l'option choisie n'est PAS "Aucun", on relance le timer
               - if:
                   condition:
-                    lambda: 'return id(test_mode).current_option(), "Aucun";'
+                    lambda: 'return strcmp(x.c_str(), "Aucun") != 0;'
                   then:
                     - script.execute: auto_stop_test
                     - if:
@@ -1770,15 +1770,26 @@ switch:
       - datetime.datetime.set:
           id: vacances_debut
           datetime: !lambda |-
-            return {.second = id(user_set_time).second, .minute = id(user_set_time).minute, .hour = id(user_set_time).hour, .day_of_month = id(user_set_time).hour, .month = id(user_set_time).month, .year = id(user_set_time).year};
+            return {.second = id(user_set_time).second, .minute = id(user_set_time).minute, .hour = id(user_set_time).hour, .day_of_month = id(user_set_time).day, .month = id(user_set_time).month, .year = id(user_set_time).year};
 
       - lambda: |-
-            std::vector<uint16_t> rtc_data = {0, 0};
+            // Hors-gel : début = date/heure courante (horloge télécommande), fin = 0
+            if (!id(user_set_time).has_state()) {
+              ESP_LOGE("Hors-gel", "Horloge télécommande invalide -> abort");
+              return;
+            }
+            auto *now = id(user_set_time);
+            uint16_t year_pac = (uint16_t)(now->year - 1980) & 0x7F;
+            uint16_t date_reg = (year_pac << 9) | (now->month << 5) | now->day;
+            uint16_t units = (uint16_t)((now->minute * 60 + now->second) / 1.875f) & 0x7FF;
+            uint16_t time_reg = (now->hour << 11) | units;
+            std::vector<uint16_t> rtc_data = {date_reg, time_reg, 0, 0};
             modbus_controller::ModbusController *controller = id(modbus_telecommande);
             // Créer la commande d'écriture multiple (Fonction 16/0x10)
             modbus_controller::ModbusCommandItem set_rtc_command =
-                modbus_controller::ModbusCommandItem::create_write_multiple_command(controller, 31010, 2, rtc_data);
+                modbus_controller::ModbusCommandItem::create_write_multiple_command(controller, 31008, 4, rtc_data);
             controller->queue_command(set_rtc_command);
+            ESP_LOGI("Hors-gel", "Activation OK");
 
     turn_off_action:
       - button.press: desactiver_vacances
@@ -1796,8 +1807,8 @@ switch:
       if (std::isnan(t_deb) || std::isnan(t_fin) ||
           t_deb <= 312764416 || t_fin <= 312764416)
         return false;
-      // Actif tant que la fin n'est pas atteinte (y compris pendant les vacances)
-      if (!std::isnan(t_now) && t_fin <= t_now)
+      // Actif tant que la fin n'est pas passée (le début peut être passé)
+      if (std::isnan(t_now) || t_fin <= t_now)
         return false;
       if (t_fin <= t_deb)
         return false;

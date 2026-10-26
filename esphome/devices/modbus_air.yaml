@@ -86,6 +86,7 @@ sensor:
   - platform: modbus_controller
     modbus_controller_id: modbus_user
     name: "Température pièce principale"
+    id: temperature_piece_principale
     device_class: "temperature"
     state_class: "measurement"
     icon: mdi:thermometer
@@ -223,6 +224,7 @@ number:
     modbus_controller_id: modbus_user
     name: "Thermostat ${K1a}"
     id: thermostat_k1a
+    internal: true # Remplacé par le thermostat (thermostats_air.yaml)
     icon: "mdi:thermostat"
     entity_category: config
     unit_of_measurement: "°C"
@@ -249,6 +251,7 @@ number:
     modbus_controller_id: modbus_user
     name: "Thermostat ${K2}"
     id: thermostat_k2
+    internal: true # Remplacé par le thermostat (thermostats_air.yaml)
     icon: "mdi:thermostat"
     entity_category: config
     unit_of_measurement: "°C"
@@ -262,6 +265,7 @@ number:
     modbus_controller_id: modbus_user
     name: "Thermostat ${K3}"
     id: thermostat_k3
+    internal: true # Remplacé par le thermostat (thermostats_air.yaml)
     icon: "mdi:thermostat"
     entity_category: config
     unit_of_measurement: "°C"
@@ -275,6 +279,7 @@ number:
     modbus_controller_id: modbus_user
     name: "Thermostat ${K4}"
     id: thermostat_k4
+    internal: true # Remplacé par le thermostat (thermostats_air.yaml)
     icon: "mdi:thermostat"
     entity_category: config
     unit_of_measurement: "°C"
@@ -288,6 +293,7 @@ number:
     modbus_controller_id: modbus_user
     name: "Thermostat ${K5}"
     id: thermostat_k5
+    internal: true # Remplacé par le thermostat (thermostats_air.yaml)
     icon: "mdi:thermostat"
     entity_category: config
     unit_of_measurement: "°C"
@@ -301,6 +307,7 @@ number:
     modbus_controller_id: modbus_user
     name: "Thermostat ${K6}"
     id: thermostat_k6
+    internal: true # Remplacé par le thermostat (thermostats_air.yaml)
     icon: "mdi:thermostat"
     entity_category: config
     unit_of_measurement: "°C"
@@ -314,6 +321,7 @@ number:
     modbus_controller_id: modbus_user
     name: "Thermostat ${K7}"
     id: thermostat_k7
+    internal: true # Remplacé par le thermostat (thermostats_air.yaml)
     icon: "mdi:thermostat"
     entity_category: config
     unit_of_measurement: "°C"
@@ -327,6 +335,7 @@ number:
     modbus_controller_id: modbus_user
     name: "Thermostat ${K8}"
     id: thermostat_k8
+    internal: true # Remplacé par le thermostat (thermostats_air.yaml)
     icon: "mdi:thermostat"
     entity_category: config
     unit_of_measurement: "°C"
@@ -340,6 +349,7 @@ number:
     modbus_controller_id: modbus_user
     name: "Thermostat ${K9}"
     id: thermostat_k9
+    internal: true # Remplacé par le thermostat (thermostats_air.yaml)
     icon: "mdi:thermostat"
     entity_category: config
     unit_of_measurement: "°C"
@@ -391,6 +401,7 @@ select:
   - platform: modbus_controller
     modbus_controller_id: modbus_user
     name: "Mode Air"
+    id: mode_air
     icon: "mdi:air-conditioner"
     address: 0x007A
     value_type: U_WORD

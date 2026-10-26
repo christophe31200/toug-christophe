@@ -1,0 +1,236 @@
+# Thermostats (entités climate) pour Home Assistant
+#
+# Une entité climate par zone, qui remplace les number "Thermostat Kx" :
+#   - consigne     : number thermostat_kx (Modbus utilisateur 0x96...)
+#   - température  : sonde de zone de la télécommande (pièce principale pour K9)
+#   - mode/preset  : select "Mode Air", commun à toutes les zones
+#   - action       : ouverture du canal de la zone (télécommande)
+#
+# Correspondance Mode Air <-> mode / preset :
+#   Off -> off | Ventilation -> fan_only
+#   Chauffage -> heat : Confort -> comfort, Eco -> eco, Prog A -> away, Prog B -> home
+#   Clim      -> cool : Confort -> comfort, Boost -> boost, Prog C -> away, Prog D -> home
+
+script:
+  # Ecrit le Mode Air à partir d'une demande d'un thermostat (-1 = non demandé)
+  - id: thermostat_mode_air
+    parameters:
+      mode: int
+      preset: int
+    then:
+      - lambda: |-
+          std::string actuel = id(mode_air).current_option().str();
+          bool chauffage = actuel.find("Chauffage") != std::string::npos;
+          bool clim = actuel.find("Clim") != std::string::npos;
+          std::string option;
+
+          switch (mode) {
+            case climate::CLIMATE_MODE_OFF:      option = "Off"; break;
+            case climate::CLIMATE_MODE_HEAT:     option = chauffage ? actuel : "Confort Chauffage"; break;
+            case climate::CLIMATE_MODE_COOL:     option = clim ? actuel : "Confort Clim"; break;
+            case climate::CLIMATE_MODE_FAN_ONLY: option = "Ventilation"; break;
+            default: break;
+          }
+
+          if (preset >= 0) {
+            if (preset == climate::CLIMATE_PRESET_NONE) {
+              option = "Off";
+            } else if (chauffage) {
+              switch (preset) {
+                case climate::CLIMATE_PRESET_COMFORT:
+                case climate::CLIMATE_PRESET_BOOST: option = "Confort Chauffage"; break;
+                case climate::CLIMATE_PRESET_ECO:   option = "Eco Chauffage"; break;
+                case climate::CLIMATE_PRESET_AWAY:  option = "Prog A Chauffage"; break;
+                case climate::CLIMATE_PRESET_HOME:  option = "Prog B Chauffage"; break;
+                default: break;
+              }
+            } else if (clim) {
+              switch (preset) {
+                case climate::CLIMATE_PRESET_COMFORT:
+                case climate::CLIMATE_PRESET_ECO:   option = "Confort Clim"; break;
+                case climate::CLIMATE_PRESET_BOOST: option = "Boost Clim"; break;
+                case climate::CLIMATE_PRESET_AWAY:  option = "Prog C Clim"; break;
+                case climate::CLIMATE_PRESET_HOME:  option = "Prog D Clim"; break;
+                default: break;
+              }
+            } else {
+              ESP_LOGW("Thermostat", "Preset ignoré : choisir d'abord chauffage ou clim");
+            }
+          }
+
+          if (option.empty() || option == actuel) return;
+          ESP_LOGD("Thermostat", "Mode Air : %s -> %s", actuel.c_str(), option.c_str());
+          auto call = id(mode_air).make_call();
+          call.set_option(option);
+          call.perform();
+
+interval:
+  # Recopie l'état de la PAC dans les thermostats (publication seulement si changement)
+  - interval: 1s
+    then:
+      - lambda: |-
+          if (!id(mode_air).has_state()) return;
+          std::string option = id(mode_air).current_option().str();
+          auto mode = climate::CLIMATE_MODE_OFF;
+          if (option.find("Chauffage") != std::string::npos) mode = climate::CLIMATE_MODE_HEAT;
+          else if (option.find("Clim") != std::string::npos) mode = climate::CLIMATE_MODE_COOL;
+          else if (option == "Ventilation") mode = climate::CLIMATE_MODE_FAN_ONLY;
+
+          auto preset = climate::CLIMATE_PRESET_NONE;
+          if (option.rfind("Confort", 0) == 0) preset = climate::CLIMATE_PRESET_COMFORT;
+          else if (option.rfind("Eco", 0) == 0) preset = climate::CLIMATE_PRESET_ECO;
+          else if (option.rfind("Boost", 0) == 0) preset = climate::CLIMATE_PRESET_BOOST;
+          else if (option.rfind("Prog A", 0) == 0 || option.rfind("Prog C", 0) == 0) preset = climate::CLIMATE_PRESET_AWAY;
+          else if (option.rfind("Prog B", 0) == 0 || option.rfind("Prog D", 0) == 0) preset = climate::CLIMATE_PRESET_HOME;
+
+          auto maj = [&](template_::TemplateClimate *c, number::Number *consigne, binary_sensor::BinarySensor *canal) {
+            // Sans information de canal, on considère la zone ouverte
+            bool ouvert = canal == nullptr || !canal->has_state() || canal->state;
+            auto action = climate::CLIMATE_ACTION_OFF;
+            switch (mode) {
+              case climate::CLIMATE_MODE_HEAT:     action = ouvert ? climate::CLIMATE_ACTION_HEATING : climate::CLIMATE_ACTION_IDLE; break;
+              case climate::CLIMATE_MODE_COOL:     action = ouvert ? climate::CLIMATE_ACTION_COOLING : climate::CLIMATE_ACTION_IDLE; break;
+              case climate::CLIMATE_MODE_FAN_ONLY: action = ouvert ? climate::CLIMATE_ACTION_FAN : climate::CLIMATE_ACTION_IDLE; break;
+              default: break;
+            }
+            float cible = consigne->has_state() ? consigne->state : NAN;
+            bool meme_cible = cible == c->target_temperature || (std::isnan(cible) && std::isnan(c->target_temperature));
+            bool meme_preset = c->preset.has_value() && *c->preset == preset;
+            if (c->mode == mode && meme_preset && c->action == action && meme_cible) return;
+            c->set_mode(mode);
+            c->set_preset(preset);
+            c->action = action;
+            c->set_target_temperature(cible);
+            c->publish_state();
+          };
+
+          maj(id(thermostat_climat_k1a), id(thermostat_k1a), id(canal_k1a));
+          ${nombre_thermostats | int >= 2 and "maj(id(thermostat_climat_k2), id(thermostat_k2), id(canal_k2));" or ""}
+          ${nombre_thermostats | int >= 3 and "maj(id(thermostat_climat_k3), id(thermostat_k3), id(canal_k3));" or ""}
+          ${nombre_thermostats | int >= 4 and "maj(id(thermostat_climat_k4), id(thermostat_k4), id(canal_k4));" or ""}
+          ${nombre_thermostats | int >= 5 and "maj(id(thermostat_climat_k5), id(thermostat_k5), id(canal_k5));" or ""}
+          ${nombre_thermostats | int >= 6 and "maj(id(thermostat_climat_k6), id(thermostat_k6), id(canal_k6));" or ""}
+          ${nombre_thermostats | int >= 7 and "maj(id(thermostat_climat_k7), id(thermostat_k7), id(canal_k7));" or ""}
+          ${nombre_thermostats | int >= 8 and "maj(id(thermostat_climat_k8), id(thermostat_k8), id(canal_k8));" or ""}
+          ${nombre_thermostats | int >= 9 and "maj(id(thermostat_climat_k9), id(thermostat_k9), nullptr);" or ""}
+
+# Configuration commune à tous les thermostats (clé ignorée par ESPHome)
+.thermostat: &thermostat
+    platform: template
+    icon: "mdi:home-thermometer"
+    optimistic: false
+    restore_mode: NO_RESTORE
+    supports_action: true
+    supported_modes:
+      - "OFF"
+      - HEAT
+      - COOL
+      - FAN_ONLY
+    supported_presets:
+      - NONE
+      - COMFORT
+      - ECO
+      - AWAY
+      - HOME
+      - BOOST
+    visual:
+      min_temperature: 0
+      max_temperature: 31
+      temperature_step:
+        target_temperature: 1
+        current_temperature: 0.1
+    set_mode_action:
+      - script.execute:
+          id: thermostat_mode_air
+          mode: !lambda "return (int) x;"
+          preset: -1
+    set_preset_action:
+      - script.execute:
+          id: thermostat_mode_air
+          mode: -1
+          preset: !lambda "return (int) x;"
+
+climate:
+  - <<: *thermostat
+    name: "Thermostat ${K1a}"
+    id: thermostat_climat_k1a
+    sensor: temperature_k1a
+    set_target_temperature_action:
+      - number.set:
+          id: thermostat_k1a
+          value: !lambda "return x;"
+  - <<: *thermostat
+    name: "Thermostat ${K2}"
+    id: thermostat_climat_k2
+    sensor: temperature_k2
+    set_target_temperature_action:
+      - number.set:
+          id: thermostat_k2
+          value: !lambda "return x;"
+  - <<: *thermostat
+    name: "Thermostat ${K3}"
+    id: thermostat_climat_k3
+    sensor: temperature_k3
+    set_target_temperature_action:
+      - number.set:
+          id: thermostat_k3
+          value: !lambda "return x;"
+  - <<: *thermostat
+    name: "Thermostat ${K4}"
+    id: thermostat_climat_k4
+    sensor: temperature_k4
+    set_target_temperature_action:
+      - number.set:
+          id: thermostat_k4
+          value: !lambda "return x;"
+  - <<: *thermostat
+    name: "Thermostat ${K5}"
+    id: thermostat_climat_k5
+    sensor: temperature_k5
+    set_target_temperature_action:
+      - number.set:
+          id: thermostat_k5
+          value: !lambda "return x;"
+  - <<: *thermostat
+    name: "Thermostat ${K6}"
+    id: thermostat_climat_k6
+    sensor: temperature_k6
+    set_target_temperature_action:
+      - number.set:
+          id: thermostat_k6
+          value: !lambda "return x;"
+  - <<: *thermostat
+    name: "Thermostat ${K7}"
+    id: thermostat_climat_k7
+    sensor: temperature_k7
+    set_target_temperature_action:
+      - number.set:
+          id: thermostat_k7
+          value: !lambda "return x;"
+  - <<: *thermostat
+    name: "Thermostat ${K8}"
+    id: thermostat_climat_k8
+    sensor: temperature_k8
+    set_target_temperature_action:
+      - number.set:
+          id: thermostat_k8
+          value: !lambda "return x;"
+  - <<: *thermostat
+    name: "Thermostat ${K9}"
+    id: thermostat_climat_k9
+    # Pas de sonde de zone K9 sur la télécommande
+    sensor: temperature_piece_principale
+    set_target_temperature_action:
+      - number.set:
+          id: thermostat_k9
+          value: !lambda "return x;"
+
+# Supprime les thermostats non utilisés
+  - id: !remove ${nombre_thermostats | int < 2 and "thermostat_climat_k2"}
+  - id: !remove ${nombre_thermostats | int < 3 and "thermostat_climat_k3"}
+  - id: !remove ${nombre_thermostats | int < 4 and "thermostat_climat_k4"}
+  - id: !remove ${nombre_thermostats | int < 5 and "thermostat_climat_k5"}
+  - id: !remove ${nombre_thermostats | int < 6 and "thermostat_climat_k6"}
+  - id: !remove ${nombre_thermostats | int < 7 and "thermostat_climat_k7"}
+  - id: !remove ${nombre_thermostats | int < 8 and "thermostat_climat_k8"}
+  - id: !remove ${nombre_thermostats | int < 9 and "thermostat_climat_k9"}

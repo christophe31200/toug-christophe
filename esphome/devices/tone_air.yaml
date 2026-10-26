@@ -8,6 +8,7 @@ packages:
   usb: !include usb.yaml
   modbus_air: !include modbus_air.yaml
   telecommande_air: !include telecommande_air.yaml
+  thermostats_air: !include thermostats_air.yaml
   
 substitutions:
   K1a: K1a
