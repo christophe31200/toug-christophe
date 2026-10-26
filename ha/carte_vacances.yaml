@@ -1,0 +1,13 @@
+# Carte "Mode vacances" à coller dans la page Thermostats du dashboard
+# (Modifier la page > Ajouter une carte > Manuel)
+#
+# Prérequis : ressource /local/toug-vacances-card.js (voir ha/www/toug-vacances-card.js)
+type: custom:toug-vacances-card
+# Options (valeurs par défaut ci-dessous, à adapter si tes entités ont un autre nom)
+# title: Mode vacances
+# heure_fin: "18:00"
+# switch: switch.toug_aquaair_vacances
+# debut: datetime.toug_aquaair_vacances_debut
+# fin: datetime.toug_aquaair_vacances_fin
+# sensor_debut: sensor.toug_aquaair_debut_vacances
+# sensor_fin: sensor.toug_aquaair_fin_vacances

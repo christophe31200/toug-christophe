@@ -268,6 +268,33 @@ Configuration : [thermostats_air.yaml](esphome/devices/thermostats_air.yaml)
 
 ![climate3](/doc/images/climate3.png)
 
+### Mode vacances
+
+#### Côté TOUG (firmware)
+Le mode vacances est géré par la TOUG avec les entités suivantes :
+
+* **Vacances début** / **Vacances fin** (`datetime`) : dates à envoyer au T.One
+* **Vacances** (`switch`) : envoie les dates au T.One. Il reste actif jusqu'à la date de fin
+* **Début vacances** / **Fin vacances** (`sensor`, diagnostic) : dates lues dans le T.One
+
+À l'activation :
+* début vide ou déjà passé → début immédiat
+* fin à 00:00 → 18h00
+* fin passée ou avant le début → refus (voir les logs)
+
+Configuration : [telecommande_air.yaml](esphome/devices/telecommande_air.yaml)
+
+#### Côté Home Assistant (carte optionnelle)
+Une carte Lovelace permet de saisir les dates et heures (sélecteurs rotatifs) et d'activer le mode vacances en un clic. Ce n'est **pas** du firmware : les fichiers sont dans le dossier [ha/](ha/) et s'installent dans Home Assistant.
+
+1. Copier [ha/www/toug-vacances-card.js](ha/www/toug-vacances-card.js) dans le dossier `/config/www/` de Home Assistant (créer le dossier si besoin puis redémarrer HA)
+2. Ajouter la ressource : *Paramètres > Tableaux de bord > ⋮ > Ressources* (ou `/config/lovelace/resources`), URL `/local/toug-vacances-card.js?v=1`, type **Module JavaScript**
+3. Ajouter une carte manuelle :
+```yaml
+type: custom:toug-vacances-card
+```
+Options disponibles (noms d'entités, heure de fin par défaut) : [ha/carte_vacances.yaml](ha/carte_vacances.yaml). Après une mise à jour du fichier, incrémenter `?v=` dans la ressource.
+
 ### Ajouter la programmation horaire
 
 Avec la télécommande du T.One il est possible de définir heure par heure si la clim ou le chauffage doit être activé ou en éco (off pour la clim). Il existe 2 programmes pour le chauffage (A et B), et 2 pour la clim (C et D)

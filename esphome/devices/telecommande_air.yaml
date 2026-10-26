@@ -158,7 +158,7 @@ globals:
 time:
   - platform: homeassistant
     id: homeassistant_time
-    
+
 datetime:
   - platform: template
     name: "Vacances début"
@@ -1791,23 +1791,34 @@ switch:
           time_t t_now = (time_t) now_epoch;
 
           // ---- Conversion des datetime en time_t (epoch) ----
-          // Début
-            ESPTime dt = id(vacances_debut).state_as_esptime();
-            struct tm tmv = dt.to_c_tm();
-            time_t t_deb_user = mktime(&tmv);
+          // Fin (obligatoire). Sans heure choisie (00:00) -> 18h00 par défaut
+          if (!id(vacances_fin).has_state()) {
+            ESP_LOGE("Vacances", "Fin vacances non renseignée -> refus");
+            return;
+          }
+          ESPTime dt = id(vacances_fin).state_as_esptime();
+          struct tm tmv = dt.to_c_tm();
+          if (tmv.tm_hour == 0 && tmv.tm_min == 0 && tmv.tm_sec == 0) {
+            ESP_LOGI("Vacances", "Heure de fin non renseignée -> 18h00");
+            tmv.tm_hour = 18;
+          }
+          tmv.tm_isdst = -1;
+          time_t t_fin_user = mktime(&tmv);
 
-
-          // Fin
-            dt = id(vacances_fin).state_as_esptime();
+          // Début (optionnel). Vide ou passé -> maintenant
+          time_t t_deb_user = t_now;
+          if (id(vacances_debut).has_state()) {
+            dt = id(vacances_debut).state_as_esptime();
             tmv = dt.to_c_tm();
-            time_t t_fin_user = mktime(&tmv);
-
+            tmv.tm_isdst = -1;
+            t_deb_user = mktime(&tmv);
+          }
 
           // ---- Validations ----
           bool erreur = false;
           if (t_deb_user <= t_now) {
-            ESP_LOGE("Vacances", "Début vacances <= maintenant -> refus");
-            erreur = true;
+            ESP_LOGI("Vacances", "Début vacances vide ou passé -> début immédiat");
+            t_deb_user = t_now;
           }
           if (t_fin_user <= t_now) {
             ESP_LOGE("Vacances", "Fin vacances <= maintenant -> refus");
@@ -1817,15 +1828,8 @@ switch:
             ESP_LOGE("Vacances", "Fin <= Début -> refus");
             erreur = true;
           }
-          if (erreur){
-            auto call1 = id(vacances_debut).make_call();
-            call1.set_datetime("1970-01-01 00:00:00");
-            call1.perform();
-            auto call2 = id(vacances_fin).make_call();
-            call2.set_datetime("1970-01-01 00:00:00");
-            call2.perform();
+          if (erreur)
             return;
-            }
           // ---- Conversion en registres PAC ----
           auto make_regs = [&](time_t ts) {
             struct tm *ti = localtime(&ts);
