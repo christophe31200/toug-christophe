@@ -60,6 +60,34 @@ api:
 
 
 script:
+  # Valeurs par défaut des dates vacances : début = maintenant, fin = 18h
+  # (aujourd'hui, ou demain si 18h est déjà passé)
+  - id: init_dates_vacances
+    then:
+      - lambda: |-
+          ESPTime now = id(homeassistant_time).now();
+          if (!now.is_valid()) {
+            ESP_LOGW("Vacances", "Heure HA non synchronisée -> pas de valeurs par défaut");
+            return;
+          }
+          time_t t_fin = now.timestamp;
+          if (now.hour >= 18)
+            t_fin += 86400;
+          struct tm tm_fin = *localtime(&t_fin);
+          tm_fin.tm_hour = 18;
+          tm_fin.tm_min = 0;
+          tm_fin.tm_sec = 0;
+          char buf[20];
+
+          auto call1 = id(vacances_debut).make_call();
+          call1.set_datetime(now.strftime("%Y-%m-%d %H:%M:%S"));
+          call1.perform();
+
+          strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tm_fin);
+          auto call2 = id(vacances_fin).make_call();
+          call2.set_datetime(std::string(buf));
+          call2.perform();
+
   - id: update_mode_air_telecommande
     then:
       - lambda: |-       
@@ -158,7 +186,13 @@ globals:
 time:
   - platform: homeassistant
     id: homeassistant_time
-    
+    on_time_sync:
+      - if:
+          condition:
+            lambda: 'return id(vacances_debut).state_as_esptime().year < 2000;'
+          then:
+            - script.execute: init_dates_vacances
+
 datetime:
   - platform: template
     name: "Vacances début"
@@ -1762,7 +1796,8 @@ switch:
       if (std::isnan(t_deb) || std::isnan(t_fin) ||
           t_deb <= 312764416 || t_fin <= 312764416)
         return false;
-      if (t_deb <= t_now || t_fin <= t_now)
+      // Actif tant que la fin n'est pas atteinte (y compris pendant les vacances)
+      if (!std::isnan(t_now) && t_fin <= t_now)
         return false;
       if (t_fin <= t_deb)
         return false;
@@ -1794,8 +1829,9 @@ switch:
           // ---- Validations ----
           bool erreur = false;
           if (t_deb_user <= t_now) {
-            ESP_LOGE("Vacances", "Début vacances <= maintenant -> refus");
-            erreur = true;
+            // Début dans le passé (ex: aujourd'hui) -> démarrage immédiat
+            ESP_LOGW("Vacances", "Début vacances <= maintenant -> début immédiat");
+            t_deb_user = t_now;
           }
           if (t_fin_user <= t_now) {
             ESP_LOGE("Vacances", "Fin vacances <= maintenant -> refus");
@@ -1806,12 +1842,7 @@ switch:
             erreur = true;
           }
           if (erreur){
-            auto call1 = id(vacances_debut).make_call();
-            call1.set_datetime("1970-01-01 00:00:00");
-            call1.perform();
-            auto call2 = id(vacances_fin).make_call();
-            call2.set_datetime("1970-01-01 00:00:00");
-            call2.perform();
+            id(init_dates_vacances).execute();
             return;
             }
           // ---- Conversion en registres PAC ----
@@ -1843,6 +1874,7 @@ switch:
 
     turn_off_action:
       - button.press: desactiver_vacances
+      - script.execute: init_dates_vacances
 
 # Example configuration entry
 light:
