@@ -43,6 +43,7 @@
 
 ### Surveillance & commandes
 
+* **Thermostats** natifs dans Home Assistant pour chaque zone (consigne, mode, presets), voir [Thermostats](#thermostats)
 * Suivi de l’**ouverture jusqu'à 6 bouches de ventilation**.
 * Détection de la **demande de résistance d’appoint** (AquaAIR seulement)
 * Lecture des sondes **ECS haut & bas** (NTC 10 kΩ) (AquaAIR seulement)
@@ -236,132 +237,30 @@ La deuxième méthode consiste à utiliser esphome depuis un terminal et suivre 
 
 ## Intégration Home Assistant
 
-### Ajouter un thermostat
-Installer hass-template-climate dans HACS et ajouter la configuration Yaml
+### Thermostats
+Les thermostats sont créés directement par la TOUG (entités `climate`), sans configuration dans Home Assistant : un thermostat **Thermostat Kx** par zone, selon `nombre_thermostats`.
 
-Exemple:
-```yaml
-climate:
-  - platform: climate_template
-    name: Séjour
-    unique_id: sejour_k1a_climate_template
-    icon_template: mdi:home-thermometer
-    availability_template: >- 
-        {{ is_state('sensor.aiguillage_vanne', 'Air') 
-        or  is_state('sensor.aiguillage_vanne', 'Standby')
-        or  is_state('sensor.aiguillage_vanne', 'ECS') }}
-    modes:
-      - "heat"
-      - "cool"  # Si la climatisation est activée
-      - "off"
-    preset_modes:
-      - comfort
-      - eco
-      - away
-      - home
-      - boost
-      - none
-    hvac_mode_template: >-
-      {% if 'Chauffage' in states('select.mode_air') %} 
-          heat
-      {% elif 'Clim' in states('select.mode_air') %} 
-          cool
-      {% else %} 
-          off      
-      {% endif %}
-    preset_mode_template: >-
-      {% if is_state('select.mode_air', 'Off') %}
-        none
-      {% elif 'Confort' in states('select.mode_air') %}
-        comfort
-      {% elif 'Prog A' in states('select.mode_air') or 'Prog C' in states('select.mode_air') %}
-        away
-      {% elif 'Prog B' in states('select.mode_air') or 'Prog D' in states('select.mode_air') %}
-        home
-      {% elif 'Eco' in states('select.mode_air') %}
-        eco
-      {% elif 'Boost' in states('select.mode_air') %}
-        boost
-      {% else %}
-        none
-      {% endif %}
-    set_preset_mode:
-      - action: select.select_option
-        data:
-          entity_id: select.mode_air
-          option: >-
-            {% if 'Chauffage' in states('select.mode_air') %} 
-                {% if preset_mode == 'none' %}
-                    Off
-                {% elif preset_mode == 'comfort' or preset_mode == 'boost' %}
-                    Confort Chauffage
-                {% elif preset_mode == 'away' %}
-                   Prog A Chauffage
-                {% elif preset_mode == 'home' %}
-                   Prog B Chauffage
-                {% elif preset_mode == 'eco' %}
-                   Eco Chauffage
-                {% endif %}
-            {% elif 'Clim' in states('select.mode_air') %} 
-              {% if preset_mode == 'none' %}
-                    Off
-                {% elif preset_mode == 'comfort' or preset_mode == 'eco' %}
-                    Confort Clim
-                {% elif preset_mode == 'away' %}
-                   Prog C Clim
-                {% elif preset_mode == 'home' %}
-                   Prog D Clim
-                {% elif preset_mode == 'boost' %}
-                   Boost Clim
-                {% endif %}
-            {% else %}
-              Off
-            {% endif %}
-    set_hvac_mode:
-      - action: select.select_option
-        data:
-          entity_id: select.mode_air
-          option: >-
-            {% if hvac_mode == 'heat' %}
-              Confort Chauffage
-            {% elif hvac_mode == 'cool' %}
-              Confort Clim
-            {% elif hvac_mode == 'off' %}
-              Off
-            {% else %}
-              Off
-            {% endif %}
-    hvac_action_template: >-
-      {% if is_state('binary_sensor.canal_k1a', 'off') %}
-        off
-      {% elif 'Chauffage' in states('select.mode_air') %}
-        heating
-      {% elif 'Clim' in states('select.mode_air') %}
-        cooling
-      {% else %}
-        idle
-      {% endif %}
+* **Consigne** : écrite dans le registre du thermostat de la zone (Modbus utilisateur `0x96`...), de 0 à 31 °C par pas de 1 °C
+* **Température** : sonde de la zone lue sur la télécommande (pièce principale pour K9)
+* **Mode** : `off`, `heat`, `cool`, `fan_only`, piloté via le select **Mode Air**
+* **Action** : chauffe / refroidit si le canal de la zone est ouvert, inactif sinon
 
-    #current_humidity_template: "{{ states('sensor.aqara_temperature_et_humidite_thermostat_k1a_humidity') }}" # Avec capteur additionnel
-    temp_step: 1
-    current_temperature_template: "{{ states('sensor.temperature_piece_principale') }}"     
-    min_temp: 0
-    max_temp_template: >-
-      {% if 'Chauffage' in states('select.mode_air') %} 
-          24
-      {% elif 'Clim' in states('select.mode_air') %} 
-           31
-      {% else %} 
-          24        {##  pas vraiment besoin  ##} 
-      {% endif %}
-    target_temperature_template: "{{ states('number.thermostat_k1a') }}" 
-    set_temperature:
-      - action: number.set_value
-        data:
-          entity_id: number.thermostat_k1a  
-          value: "{{ temperature }}"
-```
-Voici le résultat :
+Correspondance entre les presets et le **Mode Air** :
+
+| Preset | Chauffage | Clim |
+|---|---|---|
+| `comfort` | Confort Chauffage | Confort Clim |
+| `eco` | Eco Chauffage | Confort Clim |
+| `boost` | Confort Chauffage | Boost Clim |
+| `away` | Prog A Chauffage | Prog C Clim |
+| `home` | Prog B Chauffage | Prog D Clim |
+| `none` | Off | Off |
+
+⚠️ Le **Mode Air** est commun à toute la PAC : changer le mode ou le preset d'un thermostat le change pour toutes les zones. Il n'est pas possible d'éteindre une seule zone.
+
+Les anciennes entités number **Thermostat Kx** sont masquées (seul K1b reste visible). Si vous aviez créé des thermostats avec `hass-template-climate` à partir de ces entités, supprimez-les.
+
+Configuration : [thermostats_air.yaml](esphome/devices/thermostats_air.yaml)
 
 ![climate1](/doc/images/climate1.png)
 
