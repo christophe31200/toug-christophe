@@ -81,8 +81,26 @@ sensor:
     register_type: holding
     address: 0x0010
     value_type: U_DWORD
-    filters:
-        - offset: 229413106
+    accuracy_decimals: 0
+    # Registres 0x10 (date) et 0x11 (heure) au format compact de la PAC
+    # (même décodage que l'horloge de la télécommande) au lieu d'un offset fixe.
+    lambda: |-
+      uint16_t date_reg = data[item->offset + 0] << 8 | data[item->offset + 1];
+      uint16_t time_reg = data[item->offset + 2] << 8 | data[item->offset + 3];
+      uint8_t day   = date_reg & 0x1F;
+      uint8_t month = (date_reg >> 5) & 0x0F;
+      uint16_t year = 1980 + ((date_reg >> 9) & 0x7F);
+      uint8_t hours = (time_reg >> 11) & 0x1F;
+      float seconds_total = (time_reg & 0x7FF) * 1.875f;
+      struct tm t;
+      t.tm_year = year - 1900;
+      t.tm_mon  = month - 1;
+      t.tm_mday = day;
+      t.tm_hour = hours;
+      t.tm_min  = (uint8_t)(seconds_total / 60) % 60;
+      t.tm_sec  = (uint8_t)((int)seconds_total % 60);
+      t.tm_isdst = -1;
+      return (float) mktime(&t);
   - platform: modbus_controller
     modbus_controller_id: modbus_user
     name: "Température pièce principale"
