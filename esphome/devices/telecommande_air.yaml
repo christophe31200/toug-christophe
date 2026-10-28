@@ -158,6 +158,8 @@ globals:
 time:
   - platform: homeassistant
     id: homeassistant_time
+    # Sans fuseau, cette horloge remet l'ESP en UTC à chaque synchro (décalage d'1 h sur les dates)
+    timezone: "Europe/Paris"
 
 datetime:
   - platform: template
@@ -248,6 +250,14 @@ datetime:
                 modbus_controller::ModbusCommandItem::create_write_multiple_command(controller, 16, 2, rtc_data);
 
             controller->queue_command(set_rtc_command);
+
+            // --- D. Même écriture dans la PAC (registres 0x10-0x11) ---
+            // La télécommande recopie l'horloge de la PAC : sans cette écriture,
+            // l'heure réglée revient à l'ancienne valeur au cycle suivant.
+            modbus_controller::ModbusController *pac = id(modbus_user);
+            modbus_controller::ModbusCommandItem set_pac_rtc =
+                modbus_controller::ModbusCommandItem::create_write_multiple_command(pac, 0x10, 2, rtc_data);
+            pac->queue_command(set_pac_rtc);
             
             ESP_LOGI("Télécommande", "Date/heure modifiée manuellement :  %04d-%02d-%02d %02d:%02d:%02d", 
                       time_info.tm_year + 1900, month, time_info.tm_mday, time_info.tm_hour, time_info.tm_min, time_info.tm_sec);
@@ -875,7 +885,7 @@ sensor:
       t.tm_sec  = secs;
       t.tm_isdst = -1; 
 
-      time_t epoch = mktime(&t);
+      time_t epoch = ([](struct tm &x) -> time_t { auto utc_s = [](int y, int m, int d, int hh, int mi, int ss) -> int64_t { y -= (m <= 2); int64_t era = (y >= 0 ? y : y - 399) / 400; int64_t yoe = y - era * 400; int64_t doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1; int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy; return (era * 146097 + doe - 719468) * 86400LL + hh * 3600 + mi * 60 + ss; }; int64_t guess = utc_s(x.tm_year + 1900, x.tm_mon + 1, x.tm_mday, x.tm_hour, x.tm_min, x.tm_sec); int64_t e = guess; for (int i = 0; i < 2; i++) { time_t tt = (time_t) e; struct tm l; localtime_r(&tt, &l); e = guess - (utc_s(l.tm_year + 1900, l.tm_mon + 1, l.tm_mday, l.tm_hour, l.tm_min, l.tm_sec) - e); } return (time_t) e; })(t);
       return (float)epoch;
 
 
@@ -929,7 +939,7 @@ sensor:
       t.tm_sec  = secs;
       t.tm_isdst = -1; 
 
-      time_t epoch = mktime(&t);
+      time_t epoch = ([](struct tm &x) -> time_t { auto utc_s = [](int y, int m, int d, int hh, int mi, int ss) -> int64_t { y -= (m <= 2); int64_t era = (y >= 0 ? y : y - 399) / 400; int64_t yoe = y - era * 400; int64_t doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1; int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy; return (era * 146097 + doe - 719468) * 86400LL + hh * 3600 + mi * 60 + ss; }; int64_t guess = utc_s(x.tm_year + 1900, x.tm_mon + 1, x.tm_mday, x.tm_hour, x.tm_min, x.tm_sec); int64_t e = guess; for (int i = 0; i < 2; i++) { time_t tt = (time_t) e; struct tm l; localtime_r(&tt, &l); e = guess - (utc_s(l.tm_year + 1900, l.tm_mon + 1, l.tm_mday, l.tm_hour, l.tm_min, l.tm_sec) - e); } return (time_t) e; })(t);
       return (float)epoch;
 
   - platform: modbus_controller
@@ -981,7 +991,7 @@ sensor:
       t.tm_sec  = secs;
       t.tm_isdst = -1; 
 
-      time_t epoch = mktime(&t);
+      time_t epoch = ([](struct tm &x) -> time_t { auto utc_s = [](int y, int m, int d, int hh, int mi, int ss) -> int64_t { y -= (m <= 2); int64_t era = (y >= 0 ? y : y - 399) / 400; int64_t yoe = y - era * 400; int64_t doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1; int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy; return (era * 146097 + doe - 719468) * 86400LL + hh * 3600 + mi * 60 + ss; }; int64_t guess = utc_s(x.tm_year + 1900, x.tm_mon + 1, x.tm_mday, x.tm_hour, x.tm_min, x.tm_sec); int64_t e = guess; for (int i = 0; i < 2; i++) { time_t tt = (time_t) e; struct tm l; localtime_r(&tt, &l); e = guess - (utc_s(l.tm_year + 1900, l.tm_mon + 1, l.tm_mday, l.tm_hour, l.tm_min, l.tm_sec) - e); } return (time_t) e; })(t);
       return (float)epoch;
 
 
@@ -1803,7 +1813,7 @@ switch:
             tmv.tm_hour = 18;
           }
           tmv.tm_isdst = -1;
-          time_t t_fin_user = mktime(&tmv);
+          time_t t_fin_user = ([](struct tm &x) -> time_t { auto utc_s = [](int y, int m, int d, int hh, int mi, int ss) -> int64_t { y -= (m <= 2); int64_t era = (y >= 0 ? y : y - 399) / 400; int64_t yoe = y - era * 400; int64_t doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1; int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy; return (era * 146097 + doe - 719468) * 86400LL + hh * 3600 + mi * 60 + ss; }; int64_t guess = utc_s(x.tm_year + 1900, x.tm_mon + 1, x.tm_mday, x.tm_hour, x.tm_min, x.tm_sec); int64_t e = guess; for (int i = 0; i < 2; i++) { time_t tt = (time_t) e; struct tm l; localtime_r(&tt, &l); e = guess - (utc_s(l.tm_year + 1900, l.tm_mon + 1, l.tm_mday, l.tm_hour, l.tm_min, l.tm_sec) - e); } return (time_t) e; })(tmv);
 
           // Début (optionnel). Vide ou passé -> maintenant
           time_t t_deb_user = t_now;
@@ -1811,7 +1821,7 @@ switch:
             dt = id(vacances_debut).state_as_esptime();
             tmv = dt.to_c_tm();
             tmv.tm_isdst = -1;
-            t_deb_user = mktime(&tmv);
+            t_deb_user = ([](struct tm &x) -> time_t { auto utc_s = [](int y, int m, int d, int hh, int mi, int ss) -> int64_t { y -= (m <= 2); int64_t era = (y >= 0 ? y : y - 399) / 400; int64_t yoe = y - era * 400; int64_t doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + d - 1; int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy; return (era * 146097 + doe - 719468) * 86400LL + hh * 3600 + mi * 60 + ss; }; int64_t guess = utc_s(x.tm_year + 1900, x.tm_mon + 1, x.tm_mday, x.tm_hour, x.tm_min, x.tm_sec); int64_t e = guess; for (int i = 0; i < 2; i++) { time_t tt = (time_t) e; struct tm l; localtime_r(&tt, &l); e = guess - (utc_s(l.tm_year + 1900, l.tm_mon + 1, l.tm_mday, l.tm_hour, l.tm_min, l.tm_sec) - e); } return (time_t) e; })(tmv);
           }
 
           // ---- Validations ----
