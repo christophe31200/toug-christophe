@@ -1640,6 +1640,7 @@ select:
       "Clim": 5
       "Appoint Air 1": 8
       "Appoint Air 2": 9
+      "Appoint ECS": 10
       "Tirage au vide": 2
       "Pump Down": 3
       "Aéraulique": 11
