@@ -57,7 +57,7 @@ binary_sensor:
     pin:
       number: GPIO${version == "V1.0" and "32" or "36"}
       mode: INPUT
-      inverted: False
+      inverted: True   # détecteur 230 V actif à l'état bas (0 V = demande)
     filters:
       - delayed_on: 1s
       - delayed_off: 1s
